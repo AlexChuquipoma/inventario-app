@@ -1,0 +1,4 @@
+spec:
+  selector:
+    app: inventario-app
+    slot: blue

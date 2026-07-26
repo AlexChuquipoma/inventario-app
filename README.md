@@ -165,6 +165,74 @@ El pod de reemplazo se inició únicamente con los tres productos semilla; el
 producto `POD-001` desapareció. No es un error de Kubernetes: demuestra que el
 archivo local no es almacenamiento compartido ni persistente entre pods.
 
+## Estrategia Blue-Green
+
+Se eligió Blue-Green porque la aplicación ya expone versión, color y hostname
+en `/version`. Esto permite validar Green antes del corte y comprobar de forma
+determinista qué versión recibe el tráfico. El rollback consiste únicamente en
+devolver el selector del Service a Blue. Frente a Canary, evita depender de un
+reparto probabilístico de peticiones y reduce la confusión producida por la base
+JSON independiente de cada pod. El costo es mantener temporalmente ambos
+ambientes, algo aceptable para esta aplicación pequeña en Minikube.
+
+Los recursos están en `k8s/blue-green/`:
+
+- `inventario-app-blue`: imagen `05684102...`, versión y color Blue.
+- `inventario-app-green`: imagen `117567a...`, versión y color Green.
+- `inventario-app-bg`: Service cuyo selector decide el ambiente activo.
+
+Desplegar y validar ambos ambientes:
+
+```powershell
+kubectl apply --dry-run=client -f .\k8s\blue-green\
+kubectl apply -f .\k8s\blue-green\
+kubectl rollout status deployment/inventario-app-blue --timeout=120s
+kubectl rollout status deployment/inventario-app-green --timeout=120s
+kubectl get pods -l app=inventario-app -L slot
+```
+
+Validar Green directamente antes de exponerlo:
+
+```powershell
+kubectl port-forward deployment/inventario-app-green 8083:3000
+curl.exe -i http://localhost:8083/health
+curl.exe -s http://localhost:8083/version
+```
+
+Comprobar que el Service comienza en Blue:
+
+```powershell
+kubectl get service inventario-app-bg -o jsonpath="{.spec.selector}"
+kubectl port-forward service/inventario-app-bg 8082:80
+curl.exe -s http://localhost:8082/version
+```
+
+Detener el `port-forward`, cambiar el selector a Green y volver a iniciarlo:
+
+```powershell
+kubectl patch service inventario-app-bg --type merge --patch-file .\k8s\blue-green\patches\service-green.yaml
+kubectl get service inventario-app-bg -o jsonpath="{.spec.selector}"
+kubectl get endpointslices -l kubernetes.io/service-name=inventario-app-bg
+kubectl port-forward service/inventario-app-bg 8082:80
+curl.exe -s http://localhost:8082/version
+```
+
+Rollback inmediato a Blue:
+
+```powershell
+kubectl patch service inventario-app-bg --type merge --patch-file .\k8s\blue-green\patches\service-blue.yaml
+```
+
+Restaurar Green como ambiente activo:
+
+```powershell
+kubectl patch service inventario-app-bg --type merge --patch-file .\k8s\blue-green\patches\service-green.yaml
+```
+
+El `port-forward` debe reiniciarse después de cada cambio porque queda conectado
+al pod seleccionado cuando se inicia; dentro del clúster, el Service actualiza
+sus endpoints al cambiar el selector.
+
 ## Endpoints
 
 | Método y ruta | Qué hace |
