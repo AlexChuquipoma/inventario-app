@@ -7,12 +7,27 @@ const APP_VERSION = process.env.APP_VERSION || 'v1';
 const APP_COLOR = process.env.APP_COLOR || 'blue';
 const SIMULATE_FAILURE = process.env.SIMULATE_FAILURE === 'true';
 
-function createApp() {
+function parseStartupDelaySeconds(value) {
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : 0;
+}
+
+function createApp(options = {}) {
+  const now = options.now || Date.now;
+  const startedAt = now();
+  const startupDelaySeconds = parseStartupDelaySeconds(process.env.STARTUP_DELAY_SECONDS);
   const app = express();
   app.use(express.json());
   app.use(express.static(path.join(__dirname, 'public')));
 
   app.get('/health', (req, res) => {
+    const elapsedSeconds = (now() - startedAt) / 1000;
+    if (elapsedSeconds < startupDelaySeconds) {
+      return res.status(503).json({
+        status: 'starting',
+        remainingSeconds: Math.ceil(startupDelaySeconds - elapsedSeconds),
+      });
+    }
     if (SIMULATE_FAILURE || !db.canAccessDb()) {
       return res.status(500).json({ status: 'error', reason: 'fallo simulado o base de datos no accesible' });
     }

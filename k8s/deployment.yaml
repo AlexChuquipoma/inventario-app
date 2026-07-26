@@ -32,13 +32,21 @@ spec:
               value: "0568410"
             - name: APP_COLOR
               value: "blue"
+            - name: STARTUP_DELAY_SECONDS
+              value: "15"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 1
+            failureThreshold: 15
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 2
-            periodSeconds: 5
-            timeoutSeconds: 2
+            periodSeconds: 2
+            timeoutSeconds: 1
             failureThreshold: 3
           livenessProbe:
             httpGet:

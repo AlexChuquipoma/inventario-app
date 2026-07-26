@@ -97,7 +97,7 @@ Los manifiestos `k8s/deployment.yaml` y `k8s/service.yaml` crean:
 
 - Un Deployment con dos réplicas.
 - Una estrategia `RollingUpdate` con `maxUnavailable: 1` y `maxSurge: 1`.
-- Readiness y liveness probes contra `/health`.
+- Startup, readiness y liveness probes contra `/health`.
 - Un Service `ClusterIP` que dirige el tráfico a los pods listos.
 
 Iniciar Minikube y comprobar el nodo:
@@ -131,6 +131,45 @@ curl.exe -i http://localhost:8080/health
 curl.exe -i http://localhost:8080/version
 curl.exe -i http://localhost:8080/api/products
 ```
+
+### Arranque lento y estado de disponibilidad
+
+La variable `STARTUP_DELAY_SECONDS` permite simular una aplicación que ya
+escucha conexiones, pero todavía está inicializando dependencias. Durante ese
+intervalo, `/health` responde `503 Service Unavailable`; al terminar, responde
+`200 OK`.
+
+Prueba local reproducible:
+
+```powershell
+$env:STARTUP_DELAY_SECONDS = "20"
+npm.cmd start
+```
+
+Desde otra terminal:
+
+```powershell
+1..12 | ForEach-Object {
+  $hora = Get-Date -Format "HH:mm:ss"
+  $codigo = curl.exe -s -o NUL -w "%{http_code}" http://localhost:3000/health
+  Write-Output "$hora HTTP $codigo"
+  Start-Sleep -Seconds 2
+}
+```
+
+La prueba produjo primero respuestas `503` y después respuestas `200`, sin
+reiniciar el proceso. En Kubernetes, el Deployment configura un retraso de 15
+segundos y utiliza tres comprobaciones complementarias:
+
+- `startupProbe` concede tiempo para finalizar la inicialización y evita que
+  `livenessProbe` reinicie prematuramente el contenedor.
+- `readinessProbe` mantiene el pod fuera de los endpoints del Service mientras
+  `/health` responda `503`.
+- `livenessProbe` comprueba, después del arranque, que el proceso continúe
+  funcionando.
+
+Por eso un pod puede aparecer temporalmente como `Running` y `0/1`: el proceso
+existe, pero Kubernetes todavía no lo considera listo para recibir tráfico.
 
 ### Incidente real: `runAsNonRoot`
 
@@ -237,7 +276,7 @@ sus endpoints al cambiar el selector.
 
 | Método y ruta | Qué hace |
 |---|---|
-| `GET /health` | Estado de salud: `200` si el proceso y el archivo de base de datos son accesibles, `500` si no (o si `SIMULATE_FAILURE=true`). |
+| `GET /health` | Estado de salud: `503` durante el arranque configurado, `200` cuando está listo y `500` si ocurre un fallo posterior (o si `SIMULATE_FAILURE=true`). |
 | `GET /version` | Devuelve `version`, `color` y `hostname` — configurables por variables de entorno `APP_VERSION` / `APP_COLOR`. |
 | `GET /api/products` | Lista todos los productos. |
 | `GET /api/products/:id` | Devuelve un producto por id. |
@@ -253,5 +292,6 @@ sus endpoints al cambiar el selector.
 | `PORT` | `3000` | Puerto del servidor. |
 | `APP_VERSION` | `v1` | Se muestra en `/version` y en el encabezado de la interfaz. |
 | `APP_COLOR` | `blue` | Color del encabezado — útil para distinguir versiones en un despliegue. |
+| `STARTUP_DELAY_SECONDS` | `0` | Segundos durante los que `/health` responde `503` para simular una inicialización lenta. |
 | `SIMULATE_FAILURE` | `false` | Si es `true`, `/health` responde siempre `500`. |
 | `DB_PATH` | `./data/products.json` | Ruta del archivo de base de datos local. |
