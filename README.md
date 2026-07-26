@@ -171,6 +171,51 @@ segundos y utiliza tres comprobaciones complementarias:
 Por eso un pod puede aparecer temporalmente como `Running` y `0/1`: el proceso
 existe, pero Kubernetes todavía no lo considera listo para recibir tráfico.
 
+### Manejo seguro de `API_KEY`
+
+El Deployment obtiene `API_KEY` desde el Secret `inventario-app-secret` mediante
+`secretKeyRef`. El valor no aparece en el manifiesto ni en ningún archivo
+versionado. La aplicación únicamente informa en `/version` si la variable está
+configurada, sin devolver la credencial.
+
+Crear o actualizar una credencial ficticia directamente en el clúster, sin
+escribirla en un archivo:
+
+```powershell
+$apiKeyLocal = "api-$(New-Guid)"
+kubectl create secret generic inventario-app-secret --from-literal="API_KEY=$apiKeyLocal" --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Antes de eliminar la variable local, comprobar que su valor no aparece en
+ningún archivo rastreado por Git:
+
+```powershell
+$foundInGit = git grep -l --fixed-strings "$apiKeyLocal"
+if ($foundInGit) {
+  Write-Output "ERROR: la credencial aparece en $foundInGit"
+} else {
+  Write-Output "OK: la credencial no aparece en archivos versionados"
+}
+Remove-Variable apiKeyLocal
+```
+
+Aplicar el Deployment después de crear el Secret y verificar su consumo sin
+imprimir el valor:
+
+```powershell
+kubectl apply -f .\k8s\deployment.yaml
+kubectl rollout status deployment/inventario-app --timeout=120s
+kubectl exec deployment/inventario-app -- node -e "console.log('API_KEY configurada:', Boolean(process.env.API_KEY))"
+kubectl port-forward service/inventario-app 8080:80
+curl.exe -s http://localhost:8080/version
+```
+
+La respuesta de `/version` debe contener `"apiKeyConfigured":true`. Aunque los
+datos de un Secret se almacenen codificados en Base64 dentro de Kubernetes,
+Base64 no es cifrado; por eso tampoco se imprime el Secret con `kubectl get
+secret -o yaml`. Los nombres `k8s/secret.yaml` y `k8s/secret.local.yaml` están
+ignorados como protección adicional frente a un commit accidental.
+
 ### Incidente real: `runAsNonRoot`
 
 El primer despliegue quedó en `CreateContainerConfigError`. La imagen declara
@@ -277,7 +322,7 @@ sus endpoints al cambiar el selector.
 | Método y ruta | Qué hace |
 |---|---|
 | `GET /health` | Estado de salud: `503` durante el arranque configurado, `200` cuando está listo y `500` si ocurre un fallo posterior (o si `SIMULATE_FAILURE=true`). |
-| `GET /version` | Devuelve `version`, `color` y `hostname` — configurables por variables de entorno `APP_VERSION` / `APP_COLOR`. |
+| `GET /version` | Devuelve `version`, `color`, `hostname` y el booleano `apiKeyConfigured`; nunca devuelve la credencial. |
 | `GET /api/products` | Lista todos los productos. |
 | `GET /api/products/:id` | Devuelve un producto por id. |
 | `POST /api/products` | Crea un producto (`name`, `sku`, `stock`, `price`). |
@@ -293,5 +338,6 @@ sus endpoints al cambiar el selector.
 | `APP_VERSION` | `v1` | Se muestra en `/version` y en el encabezado de la interfaz. |
 | `APP_COLOR` | `blue` | Color del encabezado — útil para distinguir versiones en un despliegue. |
 | `STARTUP_DELAY_SECONDS` | `0` | Segundos durante los que `/health` responde `503` para simular una inicialización lenta. |
+| `API_KEY` | Sin valor | Credencial suministrada por un Secret; `/version` solo informa si está configurada. |
 | `SIMULATE_FAILURE` | `false` | Si es `true`, `/health` responde siempre `500`. |
 | `DB_PATH` | `./data/products.json` | Ruta del archivo de base de datos local. |

@@ -3,3 +3,5 @@ npm-debug.log
 .DS_Store
 data/products.json
 data/test-products.json
+k8s/secret.yaml
+k8s/secret.local.yaml

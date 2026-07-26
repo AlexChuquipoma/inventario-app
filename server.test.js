@@ -91,7 +91,32 @@ test('GET /version responde con version y color', async () => {
   assert.strictEqual(res.status, 200);
   assert.ok(res.body.version);
   assert.ok(res.body.color);
+  assert.strictEqual(res.body.apiKeyConfigured, false);
   server.close();
+});
+
+test('GET /version confirma API_KEY sin exponer la credencial', async () => {
+  const previousApiKey = process.env.API_KEY;
+  const testApiKey = 'credencial-de-prueba-no-exponer';
+  let server;
+
+  try {
+    process.env.API_KEY = testApiKey;
+    const app = createApp();
+    server = await startServer(app);
+
+    const res = await request(server, 'GET', '/version');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.apiKeyConfigured, true);
+    assert.ok(!JSON.stringify(res.body).includes(testApiKey));
+  } finally {
+    if (server) server.close();
+    if (previousApiKey === undefined) {
+      delete process.env.API_KEY;
+    } else {
+      process.env.API_KEY = previousApiKey;
+    }
+  }
 });
 
 test('POST /api/products crea un producto y GET /api/products lo lista', async () => {

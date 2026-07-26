@@ -16,6 +16,7 @@ function createApp(options = {}) {
   const now = options.now || Date.now;
   const startedAt = now();
   const startupDelaySeconds = parseStartupDelaySeconds(process.env.STARTUP_DELAY_SECONDS);
+  const apiKeyConfigured = Boolean(process.env.API_KEY);
   const app = express();
   app.use(express.json());
   app.use(express.static(path.join(__dirname, 'public')));
@@ -39,6 +40,7 @@ function createApp(options = {}) {
       version: APP_VERSION,
       color: APP_COLOR,
       hostname: os.hostname(),
+      apiKeyConfigured,
     });
   });
 

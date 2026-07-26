@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: inventario-app
-          image: ghcr.io/alexchuquipoma/inventario-app:05684102ac7b3af3293560e7df628ded99b1ff03
+          image: ghcr.io/alexchuquipoma/inventario-app:1077675f03415c3aed01dc0e6b66aaa1e09b3424
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -29,11 +29,16 @@ spec:
               protocol: TCP
           env:
             - name: APP_VERSION
-              value: "0568410"
+              value: "1077675"
             - name: APP_COLOR
               value: "blue"
             - name: STARTUP_DELAY_SECONDS
               value: "15"
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: inventario-app-secret
+                  key: API_KEY
           startupProbe:
             httpGet:
               path: /health
