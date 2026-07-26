@@ -91,6 +91,41 @@ Comprobar que la imagen pública se puede descargar:
 docker pull ghcr.io/alexchuquipoma/inventario-app:latest
 ```
 
+### Escaneo de seguridad con Trivy
+
+El job `build-push` construye y carga la imagen localmente, ejecuta Trivy y solo
+después realiza los dos `docker push`. El escaneo revisa vulnerabilidades de
+paquetes del sistema operativo y librerías, muestra una tabla en el log y usa
+`exit-code: 1` para detener el pipeline si encuentra severidad `CRITICAL`.
+
+La Action está fijada al SHA completo de `trivy-action` v0.36.0 para evitar que
+una etiqueta mutable cambie el código ejecutado por el pipeline:
+
+```text
+aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+```
+
+Reproducir el mismo criterio contra la imagen publicada, usando Trivy v0.70.0
+en un contenedor:
+
+```powershell
+docker run --rm aquasec/trivy:0.70.0 image --scanners vuln --pkg-types os,library --severity CRITICAL --exit-code 1 ghcr.io/alexchuquipoma/inventario-app:latest
+```
+
+Un resultado sin vulnerabilidades críticas termina con código `0`. Si aparece
+al menos una, termina con código `1`; GitHub Actions marca el job como fallido y
+omite `Push commit image` y `Push latest image`.
+
+El primer escaneo real de la imagen devolvió código `1`: detectó
+`CVE-2026-59873` en `tar 7.5.15`, una dependencia del npm global incluido por la
+imagen base, con corrección disponible en `7.5.19`. La aplicación solo necesita
+el binario `node` durante la ejecución, por lo que el Dockerfile conserva npm en
+la etapa `build` y elimina npm/npx de la etapa `runtime`. De este modo las
+pruebas y `npm prune` siguen funcionando durante el build, pero la dependencia
+vulnerable no se distribuye en la imagen final. Después de reconstruir, el
+mismo comando de Trivy devolvió código `0` y no reportó vulnerabilidades
+críticas.
+
 ## Despliegue base en Kubernetes
 
 Los manifiestos `k8s/deployment.yaml` y `k8s/service.yaml` crean:
@@ -205,9 +240,10 @@ imprimir el valor:
 ```powershell
 kubectl apply -f .\k8s\deployment.yaml
 kubectl rollout status deployment/inventario-app --timeout=120s
-kubectl exec deployment/inventario-app -- node -e "console.log('API_KEY configurada:', Boolean(process.env.API_KEY))"
-kubectl port-forward service/inventario-app 8080:80
-curl.exe -s http://localhost:8080/version
+$podBase = kubectl get pods -l 'app=inventario-app,!slot' -o jsonpath="{.items[0].metadata.name}"
+kubectl exec "pod/$podBase" -- node -e "console.log('API_KEY configurada:', Boolean(process.env.API_KEY))"
+kubectl port-forward "pod/$podBase" 8084:3000
+curl.exe -s http://localhost:8084/version
 ```
 
 La respuesta de `/version` debe contener `"apiKeyConfigured":true`. Aunque los
@@ -215,6 +251,12 @@ datos de un Secret se almacenen codificados en Base64 dentro de Kubernetes,
 Base64 no es cifrado; por eso tampoco se imprime el Secret con `kubectl get
 secret -o yaml`. Los nombres `k8s/secret.yaml` y `k8s/secret.local.yaml` están
 ignorados como protección adicional frente a un commit accidental.
+
+Se selecciona un pod sin la etiqueta `slot` porque, si los ambientes de las
+demostraciones base y Blue-Green continúan activos al mismo tiempo, el selector
+general `app=inventario-app` también coincide con los pods `blue` y `green`.
+Usar el nombre exacto evita que `kubectl exec deployment/inventario-app` elija
+uno de esos pods históricos.
 
 ### Incidente real: `runAsNonRoot`
 

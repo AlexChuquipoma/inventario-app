@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: inventario-app
-          image: ghcr.io/alexchuquipoma/inventario-app:1077675f03415c3aed01dc0e6b66aaa1e09b3424
+          image: ghcr.io/alexchuquipoma/inventario-app:99d4de3ae597ba5fb3465809c22e8a18a526e2a7
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -29,7 +29,7 @@ spec:
               protocol: TCP
           env:
             - name: APP_VERSION
-              value: "1077675"
+              value: "99d4de3"
             - name: APP_COLOR
               value: "blue"
             - name: STARTUP_DELAY_SECONDS

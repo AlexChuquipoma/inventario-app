@@ -21,6 +21,11 @@ FROM node:24-alpine AS runtime
 ENV NODE_ENV=production
 ENV PORT=3000
 
+# La aplicacion se ejecuta con node y no necesita npm/npx en runtime.
+# Se eliminan para reducir la superficie de ataque y sus dependencias transitivas.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx
+
 WORKDIR /app
 
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
