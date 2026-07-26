@@ -359,6 +359,76 @@ El `port-forward` debe reiniciarse después de cada cambio porque queda conectad
 al pod seleccionado cuando se inicia; dentro del clúster, el Service actualiza
 sus endpoints al cambiar el selector.
 
+## Métricas DORA propias
+
+Las métricas se calcularon con los hashes y timestamps reales de Git y con el
+momento observado o registrado por Kubernetes al finalizar cada rollout. Todos
+los eventos ocurrieron el 26 de julio de 2026. Los tiempos se normalizaron a
+UTC antes de restarlos.
+
+### Lead time for changes
+
+| Commit | Cambio | Commit (UTC) | Ejecutándose en el clúster (UTC) | Lead time |
+|---|---|---|---|---|
+| `0568410` | Pipeline e imagen inicial | `17:08:05` | `17:36:52` | `00:28:47` |
+| `117567a` | Rolling deployment | `17:58:11` | `18:02:16.297` | `00:04:05.297` |
+| `1077675` | Arranque lento y probes | `18:40:20` | `18:50:19.821` | `00:09:59.821` |
+| `99d4de3` | Secret para `API_KEY` | `18:58:22` | `19:03:31` | `00:05:09` |
+| `30fb843` | Trivy y runtime endurecido | `19:24:37` | `19:35:36` | `00:10:59` |
+
+El promedio de los cinco cambios es `00:11:48.024`. La diferencia entre el
+menor y el mayor valor muestra que el tiempo no depende únicamente del
+pipeline: también incluye la preparación, aplicación y validación real en el
+clúster.
+
+### Frecuencia de despliegue
+
+Se registraron siete despliegues exitosos en un día, equivalentes a
+`7 despliegues/día`:
+
+1. Corrección y disponibilidad del Deployment base con la imagen `0568410`.
+2. Rolling update del Deployment base a `117567a`.
+3. Creación del ambiente Blue con `0568410`.
+4. Creación del ambiente Green con `117567a`.
+5. Despliegue base de `1077675` con arranque lento.
+6. Despliegue base de `99d4de3` con Secret.
+7. Despliegue base final de `30fb843` con el runtime endurecido.
+
+Los tres cambios del selector del Service Blue-Green se registran como cortes
+de tráfico - Blue a Green, rollback demostrativo a Blue y restauración a Green
+- pero no se suman a esta frecuencia porque no crearon una revisión nueva de
+un Deployment.
+
+### Change failure rate simplificado
+
+Hubo ocho intentos de despliegue: los siete exitosos anteriores y el primer
+intento del Deployment base, que quedó en `CreateContainerConfigError` y
+requirió declarar los UID/GID numéricos. Por tanto:
+
+```text
+change failure rate = 1 intento con corrección / 8 intentos totales * 100
+                    = 12.5 %
+```
+
+El rollback Blue-Green fue una prueba planificada, no la recuperación de un
+fallo, y los `503` iniciales del `startupProbe` fueron el comportamiento
+esperado. Ninguno se contabiliza como despliegue fallido.
+
+### Reproducir la trazabilidad del último despliegue
+
+```powershell
+git log -1 --format="commit=%H%nfecha=%cI%nmensaje=%s"
+kubectl rollout status deployment/inventario-app --timeout=120s
+kubectl get pods -l 'app=inventario-app,!slot' -o custom-columns="NAME:.metadata.name,READY:.status.containerStatuses[0].ready,STATUS:.status.phase,IMAGE:.spec.containers[0].image"
+$deployment = kubectl get deployment inventario-app -o json | ConvertFrom-Json
+$deployment.metadata.annotations.'dora.commit-sha'
+$deployment.metadata.annotations.'dora.deployed-at'
+```
+
+La reflexión de una a dos páginas solicitada en la Parte II se encuentra en
+`output/pdf/informe-reflexion-cicd.pdf`; su contenido editable está en
+`docs/informe-reflexion.md`.
+
 ## Endpoints
 
 | Método y ruta | Qué hace |
